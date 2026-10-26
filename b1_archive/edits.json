@@ -1,0 +1,17 @@
+[
+  {
+    "compactions_before": 0,
+    "old": "export const TOKEN_TTL = 900; // seconds",
+    "new": "export const TOKEN_TTL = 3600; // seconds"
+  },
+  {
+    "compactions_before": 2,
+    "old": "export async function refreshToken(userId: string, oldToken: string): Promise<string> {\n  const row = await db.one(\"SELECT token FROM refresh_tokens WHERE user_id = $1 AND token = $2 AND revoked = false\", [userId, oldToken]);\n  if (!row) throw new Error(\"invalid refresh token\");\n  const next = crypto.randomUUID();\n  await db.none(\"INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, now() + $3 * interval '1 second')\", [userId, next, TOKEN_TTL]);\n  await db.none(\"UPDATE refresh_tokens SET revoked = true WHERE token = $1\", [oldToken]);\n  return next;\n}",
+    "new": "export async function refreshToken(userId: string, oldToken: string): Promise<string> {\n  const next = crypto.randomUUID();\n  await db.tx(async (t) => {\n    // Atomic rotation: the conditional UPDATE both validates and revokes the old token.\n    // Concurrent callers serialize on the row lock; the loser sees revoked = true -> rowCount 0.\n    const res = await t.result(\n      \"UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND token = $2 AND revoked = false\",\n      [userId, oldToken]\n    );\n    if (!res || res.rowCount !== 1) throw new Error(\"invalid refresh token\");\n    await t.none(\n      \"INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, now() + $3 * interval '1 second')\",\n      [userId, next, TOKEN_TTL]\n    );\n  });\n  return next;\n}"
+  },
+  {
+    "compactions_before": 3,
+    "old": "export const TOKEN_TTL = 3600; // seconds",
+    "new": "export const TOKEN_TTL = 900; // seconds"
+  }
+]

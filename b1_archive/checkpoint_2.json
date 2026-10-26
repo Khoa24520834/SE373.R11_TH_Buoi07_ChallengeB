@@ -1,0 +1,28 @@
+{
+  "goal": "Sửa đúng nguyên nhân các lỗi refresh-token rotation và chạy lại toàn bộ test để xác nhận tất cả pass.",
+  "current_state": "Đã tăng `TOKEN_TTL` trong `session.ts` từ 900 lên 3600 và đọc lại các file liên quan. Test vẫn còn 480 pass, 3 fail, tổng 483 test. Phần `refreshToken()` chưa được sửa.",
+  "constraints": [
+    "Giữ API backward compatible (không đổi chữ ký các hàm export).",
+    "Trả lời bằng tiếng Việt, ngắn gọn.",
+    "edit_file needs the exact current text: read_file first."
+  ],
+  "findings": [
+    "Tăng `TOKEN_TTL` không thay đổi kết quả, nên token hết hạn sớm không phải nguyên nhân.",
+    "`refreshToken()` đang thực hiện check-then-act không atomic: SELECT token còn hiệu lực, INSERT token mới, rồi UPDATE revoke token cũ.",
+    "Hai request đồng thời có thể cùng thấy token cũ hợp lệ và cùng tạo token mới, gây 2 active refresh token.",
+    "Việc tái sử dụng token cũ trả 200 cho thấy trạng thái revoke chưa được áp dụng chắc chắn; cần revoke có điều kiện và kiểm tra số row bị ảnh hưởng.",
+    "`db.ts` đã cung cấp `db.tx()` và `db.result()` để thực hiện transaction, khóa dòng và kiểm tra `rowCount`.",
+    "Các test fail: `concurrent refresh issues exactly one new token` (got 2), `old token rejected after rotation` (expected 401, got 200), và `concurrent rotation keeps single session row` (got 2)."
+  ],
+  "failed_attempts": [
+    "Baseline với `TOKEN_TTL=900`: 480 pass, 3 fail, 483 total.",
+    "Tăng `TOKEN_TTL` lên 3600 rồi chạy lại: vẫn 480 pass, 3 fail, 483 total."
+  ],
+  "files": [
+    "session.ts — đã đổi `TOKEN_TTL` thành 3600; `refreshToken()` chưa được sửa.",
+    "auth.ts — chỉ đọc; `handleRefresh()` gọi trực tiếp `refreshToken()`.",
+    "db.ts — chỉ đọc; hỗ trợ `tx` và `result`.",
+    "auth.test.ts — chỉ đọc để xác định các assertion fail."
+  ],
+  "next_action": "Sửa `refreshToken()` trong `session.ts` để chạy trong `db.tx()`: khóa token cũ bằng `SELECT ... FOR UPDATE`, revoke có điều kiện `revoked=false`, kiểm tra `rowCount === 1`, rồi mới INSERT token mới; sau đó chạy toàn bộ test và tiếp tục chẩn đoán nếu còn fail."
+}

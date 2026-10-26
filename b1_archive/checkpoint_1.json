@@ -1,0 +1,28 @@
+{
+  "goal": "Xác định các test fail và nguyên nhân khả dĩ; theo yêu cầu hiện tại, tăng TOKEN_TTL trong session.ts từ 900 lên 3600 rồi chạy lại test và báo cáo, không sửa gì khác.",
+  "current_state": "Đã đổi `export const TOKEN_TTL = 900` thành `export const TOKEN_TTL = 3600` trong `session.ts`. Test suite chạy lại vẫn có 480 pass, 3 fail, tổng 483 test. Chưa thay đổi chữ ký hàm export hoặc file nào khác.",
+  "constraints": [
+    "Ràng buộc bắt buộc: giữ API backward compatible (không đổi chữ ký các hàm export).",
+    "Trả lời bằng tiếng Việt, ngắn gọn.",
+    "Chỉ thực hiện thay đổi được yêu cầu trong lượt hiện tại."
+  ],
+  "findings": [
+    "`auth.test.ts > refresh > concurrent refresh issues exactly one new token` fail: expected 1 active refresh token for `u_42`, got 2.",
+    "`auth.test.ts > refresh > old token rejected after rotation` fail: expected 401 for reused refresh token, got 200.",
+    "`session.test.ts > rotation > concurrent rotation keeps single session row` fail: expected 1 row in `refresh_tokens(user_id=u_42, revoked=false)`, got 2.",
+    "Việc tăng TTL từ 900 lên 3600 không thay đổi kết quả, nên thời hạn token quá ngắn không phải nguyên nhân của ba lỗi.",
+    "Hai lỗi concurrency nhiều khả năng do race condition check-then-act trong `refreshToken()`: SELECT token còn hiệu lực, INSERT token mới rồi UPDATE token cũ; các request song song đều có thể cùng thấy token cũ hợp lệ và cùng INSERT.",
+    "Lỗi tái sử dụng token cũ không liên quan TTL; khả năng nằm ở việc trạng thái revoke không được lưu/đọc đúng bởi lớp DB runtime hoặc điều kiện SQL trong SELECT/UPDATE."
+  ],
+  "failed_attempts": [
+    "Baseline với `TOKEN_TTL=900`: 480 pass, 3 fail, 483 total.",
+    "Thử nghiện tăng `TOKEN_TTL` lên 3600: vẫn 480 pass, 3 fail, 483 total; giả thuyết token hết hạn quá sớm không được xác nhận."
+  ],
+  "files": [
+    "session.ts — đã sửa `TOKEN_TTL` từ 900 thành 3600.",
+    "auth.ts — chỉ đọc để phân tích.",
+    "auth.test.ts — chỉ đọc để phân tích.",
+    "db.ts — chỉ đọc để phân tích."
+  ],
+  "next_action": "Báo cáo rằng TTL đã được tăng lên 3600 nhưng cả 3 test vẫn fail, kèm nguyên nhân khả dĩ; không thực hiện thay đổi thêm nếu chưa có chỉ thị."
+}
